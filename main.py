@@ -5,6 +5,7 @@ import os
 import sys
 import time
 import traceback
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -313,14 +314,49 @@ class OpenRouterTester:
                 ),
                 module, method, "harmony structured output"
             )
-            
-            content = response.choices[0].message.content
-            parsed = json.loads(content)
-            
-            self.log(module, method, "INFO", f"Harmony ответ получен с {len(parsed.get('reasoning', {}).get('steps', []))} шагами")
-            
+
+            content = response.choices[0].message.content if response.choices and response.choices[0].message else None
+
+            if not content or not content.strip():
+                self.log(module, method, "WARN", "Пустой контент от модели (empty content) — не удалось распарсить JSON")
+                return TestResult("failed", {"response": content}, error="Empty response content")
+
+            def try_parse(text: str) -> Tuple[Optional[dict], Optional[str]]:
+                """Попытаться распарсить JSON несколькими стратегиями."""
+                try:
+                    return json.loads(text), None
+                except json.JSONDecodeError as err:
+                    match = re.search(r'\{[\s\S]*\}', text)
+                    if match:
+                        candidate = match.group(0)
+                        try:
+                            return json.loads(candidate), None
+                        except json.JSONDecodeError as err_inner:
+                            return None, f"Primary parse error: {err}; Extracted segment parse error: {err_inner}"
+                    return None, f"Primary parse error: {err}; no JSON object found"
+
+            parsed, parse_error = try_parse(content)
+            if parsed is None:
+                self.log(module, method, "WARN", f"Невалидный Harmony JSON. Ошибка: {parse_error}. Фрагмент: {content[:160]}")
+                return TestResult("failed", {"response": content}, error=parse_error)
+
+            reasoning = parsed.get("reasoning") if isinstance(parsed, dict) else None
+            missing = []
+            if isinstance(reasoning, dict):
+                for key in ["problem", "approach", "steps", "conclusion"]:
+                    if key not in reasoning:
+                        missing.append(key)
+            else:
+                missing.append("reasoning")
+
+            if missing:
+                self.log(module, method, "WARN", f"JSON получен, но отсутствуют поля: {', '.join(missing)}")
+                return TestResult("failed", {"response": parsed}, error=f"Missing fields: {', '.join(missing)}")
+
+            steps_count = len(reasoning.get("steps", [])) if isinstance(reasoning.get("steps"), list) else 0
+            self.log(module, method, "INFO", f"Harmony ответ валиден: {steps_count} шагов")
             return TestResult("success", {"response": parsed})
-            
+
         except Exception as e:
             self.log(module, method, "ERROR", f"Ошибка Harmony для {model}", e)
             return TestResult("failed", error=str(e))
@@ -409,6 +445,68 @@ class OpenRouterTester:
                 
         except Exception as e:
             self.log(module, method, "ERROR", f"Ошибка tool calling для {model}", e)
+            return TestResult("failed", error=str(e))
+
+    def test_image_generation(self, model: str, prompt: Optional[str] = None) -> TestResult:
+        """Тест генерации изображений для моделей, поддерживающих image generation API.
+
+        По умолчанию пропускаем модели, которые не содержат в названии ключевых слов
+        ('image', 'dall', 'gpt-image', 'flux', 'sd', 'stable') чтобы не слать неподдерживаемые запросы.
+        """
+        module, method = "ImageGen", "test_image_generation"
+        try:
+            lowered = model.lower()
+            if not any(k in lowered for k in ["image", "dall", "gpt-image", "flux", "sd", "stable"]):
+                self.log(module, method, "INFO", f"Пропуск image generation для {model} - вероятно не генерирует изображения")
+                return TestResult("skipped", error="Model not recognized as image generator")
+
+            prompt = prompt or "A minimalist flat illustration of a friendly cyberpunk cat coding at a holographic laptop, vibrant neon palette"
+            self.log(module, method, "INFO", f"Тестирование image generation для {model}")
+
+            start = time.time()
+            image_b64 = None
+            generation_mode = "images.generate"
+            try:
+                resp = self.client.images.generate(model=model, prompt=prompt, size="512x512")
+                image_b64 = resp.data[0].b64_json if resp and resp.data else None
+            except Exception as direct_err:
+                self.log(module, method, "WARN", f"Прямой images API не сработал ({direct_err}); fallback через chat попыткой получить data URI")
+                generation_mode = "chat-fallback"
+                try:
+                    chat_resp = self.client.chat.completions.create(
+                        model=model,
+                        messages=[{"role": "user", "content": f"Generate an image for this prompt and return ONLY a JSON object: {{\"image_base64\": <base64 PNG>}}. Prompt: {prompt}"}],
+                        max_tokens=1200,
+                        temperature=0.7
+                    )
+                    content = chat_resp.choices[0].message.content
+                    try:
+                        data = json.loads(content)
+                        image_b64 = data.get("image_base64") if isinstance(data, dict) else None
+                    except Exception:
+                        match = re.search(r"data:image/(?:png|jpeg);base64,([A-Za-z0-9+/=]+)", content or "")
+                        if match:
+                            image_b64 = match.group(1)
+                except Exception as fallback_err:
+                    return TestResult("failed", error=f"Both image API and chat fallback failed: {fallback_err}")
+
+            if not image_b64:
+                return TestResult("failed", error="No base64 image data returned")
+
+            out_dir = Path("out")
+            out_dir.mkdir(exist_ok=True)
+            file_path = out_dir / f"generated_{int(time.time())}.png"
+            try:
+                with open(file_path, "wb") as f:
+                    f.write(base64.b64decode(image_b64))
+            except Exception as write_err:
+                return TestResult("failed", error=f"Failed to write image file: {write_err}")
+
+            elapsed = time.time() - start
+            self.log(module, method, "INFO", f"Изображение сгенерировано ({generation_mode}) за {elapsed:.2f}с -> {file_path}")
+            return TestResult("success", {"file": str(file_path), "mode": generation_mode, "elapsed_seconds": elapsed})
+        except Exception as e:
+            self.log(module, method, "ERROR", f"Ошибка image generation для {model}", e)
             return TestResult("failed", error=str(e))
     
     def test_batch(self, model: str, prompts: Optional[List[str]] = None) -> TestResult:
@@ -512,6 +610,8 @@ class OpenRouterTester:
                     result = self.test_tool_calling(model)
                 elif category == "batch":
                     result = self.test_batch(model)
+                elif category == "imagegen":
+                    result = self.test_image_generation(model)
                 else:
                     result = TestResult("skipped", error=f"Unknown category: {category}")
                 
