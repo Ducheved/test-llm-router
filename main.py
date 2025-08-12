@@ -48,6 +48,15 @@ class OpenRouterTester:
         self.max_retries = int(os.getenv("MAX_RETRIES", "3"))
         self.retry_delay = int(os.getenv("RETRY_DELAY", "2"))
         self.timeout = int(os.getenv("REQUEST_TIMEOUT", "120"))
+        env_mm = os.getenv("MULTIMODAL_MODELS", "").strip()
+        if env_mm:
+            self.multimodal_models = [m.strip().lower() for m in env_mm.split(',') if m.strip()]
+        else:
+            self.multimodal_models = [
+                "gpt-5",
+                "gpt-4o", "gpt-4-vision", "claude-3", "gemini",
+                "llama-3.2-90b-vision", "qwen", "glm-4"
+            ]
         
         os.makedirs("out", exist_ok=True)
         os.makedirs("logs", exist_ok=True)
@@ -170,12 +179,8 @@ class OpenRouterTester:
                 self.log(module, method, "WARN", f"Изображение {image_path} не найдено")
                 return TestResult("skipped", error="Image not found")
             
-            multimodal_models = [
-                "gpt-4o", "gpt-4-vision", "claude-3", "gemini", 
-                "llama-3.2-90b-vision", "qwen", "glm-4"
-            ]
-            
-            is_multimodal = any(mm in model.lower() for mm in multimodal_models)
+            lower_model = model.lower()
+            is_multimodal = any(mm in lower_model for mm in self.multimodal_models)
             
             if not is_multimodal:
                 self.log(module, method, "INFO", f"Пропуск vision для {model} - не мультимодальная")
