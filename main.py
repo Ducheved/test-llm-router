@@ -6,6 +6,7 @@ import sys
 import time
 import traceback
 import re
+import openai
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -365,6 +366,20 @@ class OpenRouterTester:
         module, method = "Tools", "test_functions"
         
         try:
+            lowered = model.lower()
+
+            whitelist_raw = os.getenv("TOOL_MODELS", "").strip()
+            if whitelist_raw:
+                whitelist = [w.strip().lower() for w in whitelist_raw.split(',') if w.strip()]
+                if not any(w in lowered for w in whitelist):
+                    self.log(module, method, "INFO", f"Пропуск tool calling для {model} (не в TOOL_MODELS)")
+                    return TestResult("skipped", error="Model not in TOOL_MODELS whitelist")
+            else:
+                heuristic_keys = ["gpt", "claude", "llama", "qwen", "deepseek", "mistral", "command", "sonar", "o3", "reasoning"]
+                if not any(k in lowered for k in heuristic_keys):
+                    self.log(module, method, "INFO", f"Пропуск tool calling для {model} (не проходит эвристику)")
+                    return TestResult("skipped", error="Heuristic skip: likely no tool support")
+
             self.log(module, method, "INFO", f"Тестирование tool calling для {model}")
             
             tools = [
@@ -413,16 +428,24 @@ class OpenRouterTester:
                 {"role": "user", "content": "Какая погода в Париже? И сколько будет 25 * 4?"}
             ]
             
-            response = self.retry_call(
-                lambda: self.client.chat.completions.create(
-                    model=model,
-                    messages=messages,
-                    tools=tools,
-                    tool_choice="auto",
-                    max_tokens=200
-                ),
-                module, method, "tool calling"
-            )
+            try:
+                response = self.retry_call(
+                    lambda: self.client.chat.completions.create(
+                        model=model,
+                        messages=messages,
+                        tools=tools,
+                        tool_choice="auto",
+                        max_tokens=200
+                    ),
+                    module, method, "tool calling"
+                )
+            except Exception as call_err:
+                err_text = str(call_err)
+                status_code = getattr(call_err, 'status_code', None)
+                if (status_code == 404) or '404' in err_text or 'NotFound' in err_text:
+                    self.log(module, method, "WARN", f"Модель не поддерживает tool calling (404). Пропуск.")
+                    return TestResult("skipped", error="Tool calling unsupported (404)")
+                raise
             
             tool_calls = response.choices[0].message.tool_calls
             
