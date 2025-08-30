@@ -208,3 +208,5 @@ __marimo__/
 
 out/
 logs/
+
+clean.ps1
