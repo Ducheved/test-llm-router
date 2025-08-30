@@ -56,6 +56,7 @@ def main():
   completions - Completions API (не chat)
   models      - Models list и endpoints
   batch       - Batch запросы
+  cache       - Prompt caching тестирование
 
 Переменные окружения:
   ROUTER_API_KEY     - API ключ OpenRouter (обязательно)

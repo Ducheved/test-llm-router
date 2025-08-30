@@ -26,6 +26,7 @@ from .modules.chat_completions import ChatCompletionsTestModule
 from .modules.harmony import HarmonyTestModule  
 from .modules.openrouter_api import OpenRouterAPITestModule
 from .modules.image_generation import ImageGenerationTestModule
+from .modules.prompt_caching import PromptCachingTestModule
 
 console = Console()
 
@@ -43,7 +44,8 @@ class OpenRouterTestRunner:
             "chat": ChatCompletionsTestModule(config, self.http_client),
             "harmony": HarmonyTestModule(config, self.http_client),
             "openrouter": OpenRouterAPITestModule(config, self.http_client),
-            "imagegen": ImageGenerationTestModule(config, self.http_client)
+            "imagegen": ImageGenerationTestModule(config, self.http_client),
+            "cache": PromptCachingTestModule(config, self.http_client)
         }
         self.category_mapping = {
             "chat": [("chat", "basic_chat"), ("chat", "streaming_chat"), ("chat", "json_mode")],
@@ -57,6 +59,9 @@ class OpenRouterTestRunner:
             "completions": [("openrouter", "completions_api")],
             "models": [("openrouter", "models_list"), ("openrouter", "model_endpoints")],
             "batch": [("chat", "basic_chat")],
+            "cache": [("cache", "cache_basic_test"), ("cache", "cache_repeated_requests"), 
+                     ("cache", "cache_system_message"), ("cache", "cache_token_analysis"),
+                     ("cache", "cache_historian_example")],
         }
         self.results = {}
         self.start_time = datetime.now()
