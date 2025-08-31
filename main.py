@@ -57,7 +57,7 @@ class TestConfig:
     """Конфигурация для тестирования"""
     api_key: str
     base_url: str
-    model: str
+    models: List[str]  # Изменено с model на models
     test_categories: List[str]
     vision_image_path: str
     max_tokens: int = 1000
@@ -73,8 +73,9 @@ class TestConfig:
             raise ValueError("❌ ROUTER_API_KEY не найден в .env файле!")
         
         base_url = os.getenv("ROUTER_BASE_URL", "https://openrouter.ai/api/v1")
-        model = os.getenv("TEST_MODELS", "").split(",")[0].strip()
-        if not model:
+        models_str = os.getenv("TEST_MODELS", "")
+        models = [model.strip() for model in models_str.split(",") if model.strip()]
+        if not models:
             raise ValueError("❌ TEST_MODELS не найден в .env файле!")
             
         categories = os.getenv("TEST_CATEGORIES", "chat").split(",")
@@ -85,7 +86,7 @@ class TestConfig:
         return cls(
             api_key=api_key,
             base_url=base_url, 
-            model=model,
+            models=models,  # Изменено с model на models
             test_categories=categories,
             vision_image_path=vision_image
         )
@@ -112,8 +113,9 @@ class TestResult:
 class UltimateOpenRouterTester:
     """🎯 Ультимативный тестер OpenRouter API"""
     
-    def __init__(self, config: TestConfig):
+    def __init__(self, config: TestConfig, model: str):
         self.config = config
+        self.model = model  # Текущая модель для тестирования
         self.client = OpenAI(api_key=config.api_key, base_url=config.base_url)
         self.http_client = httpx.Client(timeout=config.timeout)
         self.results: List[TestResult] = []
@@ -122,10 +124,11 @@ class UltimateOpenRouterTester:
         
         # Инициализируем лог файл
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        self.log_file = self.logs_dir / f"ultimate_test_{timestamp}.log"
+        model_clean = self.model.replace("/", "_").replace("-", "_")
+        self.log_file = self.logs_dir / f"ultimate_test_{model_clean}_{timestamp}.log"
         
         # Инициализируем logger
-        self.logger = logging.getLogger(f"ultimate_test_{timestamp}")
+        self.logger = logging.getLogger(f"ultimate_test_{model_clean}_{timestamp}")
         self.logger.setLevel(logging.DEBUG)
         
         # Создаем handler для файла с правильной кодировкой
@@ -140,7 +143,7 @@ class UltimateOpenRouterTester:
         
         console.print(Panel.fit(
             f"[bold cyan]🚀 ULTIMATE OpenRouter Test Suite[/]\n\n"
-            f"[green]Model:[/] {config.model}\n"
+            f"[green]Model:[/] {self.model}\n"
             f"[blue]Base URL:[/] {config.base_url}\n"
             f"[yellow]Categories:[/] {', '.join(config.test_categories)}\n"
             f"[magenta]Log File:[/] {self.log_file}",
@@ -318,7 +321,7 @@ class UltimateOpenRouterTester:
             ]
             
             response = self.client.chat.completions.create(
-                model=self.config.model,
+                model=self.model,
                 messages=messages,
                 max_tokens=self.config.max_tokens,
                 temperature=self.config.temperature
@@ -338,7 +341,7 @@ class UltimateOpenRouterTester:
                 category="chat",
                 success=quality_check,
                 duration=duration,
-                model=self.config.model,
+                model=self.model,
                 response_data={
                     "content": content, 
                     "finish_reason": finish_reason,
@@ -357,7 +360,7 @@ class UltimateOpenRouterTester:
                 category="chat", 
                 success=False,
                 duration=duration,
-                model=self.config.model,
+                model=self.model,
                 error=str(e)
             )
     
@@ -374,7 +377,7 @@ class UltimateOpenRouterTester:
             ]
             
             stream = self.client.chat.completions.create(
-                model=self.config.model,
+                model=self.model,
                 messages=messages,
                 max_tokens=500,
                 temperature=0.3,
@@ -411,7 +414,7 @@ class UltimateOpenRouterTester:
                 category="stream",
                 success=success,
                 duration=duration,
-                model=self.config.model,
+                model=self.model,
                 response_data={
                     "content": collected_content,
                     "chunks_received": chunk_count,
@@ -427,7 +430,7 @@ class UltimateOpenRouterTester:
                 category="stream",
                 success=False,
                 duration=duration,
-                model=self.config.model,
+                model=self.model,
                 error=str(e)
             )
     
@@ -441,7 +444,7 @@ class UltimateOpenRouterTester:
                 category="vision",
                 success=False, 
                 duration=0,
-                model=self.config.model,
+                model=self.model,
                 error="No image available for vision test"
             )
         
@@ -463,7 +466,7 @@ class UltimateOpenRouterTester:
             ]
             
             response = self.client.chat.completions.create(
-                model=self.config.model,
+                model=self.model,
                 messages=messages,
                 max_tokens=800,
                 temperature=0.2
@@ -483,7 +486,7 @@ class UltimateOpenRouterTester:
                 category="vision", 
                 success=quality_check and has_detailed_analysis,
                 duration=duration,
-                model=self.config.model,
+                model=self.model,
                 response_data={
                     "content": content,
                     "content_length": len(content) if content else 0,
@@ -500,7 +503,7 @@ class UltimateOpenRouterTester:
                 category="vision",
                 success=False,
                 duration=duration,
-                model=self.config.model,
+                model=self.model,
                 error=str(e)
             )
     
@@ -533,7 +536,7 @@ class UltimateOpenRouterTester:
             ]
             
             response = self.client.chat.completions.create(
-                model=self.config.model,
+                model=self.model,
                 messages=messages,
                 max_tokens=400,
                 temperature=0.2,
@@ -567,7 +570,7 @@ class UltimateOpenRouterTester:
                 category="json",
                 success=json_valid,
                 duration=duration,
-                model=self.config.model,
+                model=self.model,
                 response_data={
                     "content": content,
                     "json_valid": json_valid,
@@ -584,7 +587,7 @@ class UltimateOpenRouterTester:
                 category="json",
                 success=False,
                 duration=duration,
-                model=self.config.model,
+                model=self.model,
                 error=str(e)
             )
     
@@ -630,7 +633,7 @@ class UltimateOpenRouterTester:
             ]
             
             response = self.client.chat.completions.create(
-                model=self.config.model,
+                model=self.model,
                 messages=messages,
                 tools=tools,
                 max_tokens=300,
@@ -662,7 +665,7 @@ class UltimateOpenRouterTester:
                 category="tools",
                 success=tool_called,
                 duration=duration,
-                model=self.config.model,
+                model=self.model,
                 response_data={
                     "content": content,
                     "tool_called": tool_called,
@@ -679,7 +682,7 @@ class UltimateOpenRouterTester:
                 category="tools",
                 success=False,
                 duration=duration,
-                model=self.config.model,
+                model=self.model,
                 error=str(e)
             )
     
@@ -793,7 +796,7 @@ class UltimateOpenRouterTester:
             
             self.logger.info("🚀 Отправляем первый запрос с cache_control (создание кеша)...")
             response_1 = self.client.chat.completions.create(
-                model=self.config.model,
+                model=self.model,
                 messages=messages_with_cache,
                 max_tokens=200,
                 temperature=0.1  # Низкая температура для стабильности
@@ -833,7 +836,7 @@ class UltimateOpenRouterTester:
             
             self.logger.info("🔄 Отправляем второй запрос (чтение из кеша)...")
             response_2 = self.client.chat.completions.create(
-                model=self.config.model,
+                model=self.model,
                 messages=messages_cache_read,
                 max_tokens=200,
                 temperature=0.1
@@ -940,7 +943,7 @@ class UltimateOpenRouterTester:
                 category="cache",
                 success=cache_detected,
                 duration=duration,
-                model=self.config.model,
+                model=self.model,
                 response_data={
                     "cache_detected": cache_detected,
                     "first_response_length": len(first_content) if first_content else 0,
@@ -962,7 +965,7 @@ class UltimateOpenRouterTester:
                 category="cache",
                 success=False,
                 duration=duration, 
-                model=self.config.model,
+                model=self.model,
                 error=str(e)
             )
     
@@ -976,7 +979,7 @@ class UltimateOpenRouterTester:
                 category="multimodal",
                 success=False,
                 duration=0,
-                model=self.config.model,
+                model=self.model,
                 error="No image available for multimodal test"
             )
         
@@ -1002,7 +1005,7 @@ class UltimateOpenRouterTester:
             ]
             
             response = self.client.chat.completions.create(
-                model=self.config.model,
+                model=self.model,
                 messages=messages,
                 max_tokens=1000,
                 temperature=0.3
@@ -1023,7 +1026,7 @@ class UltimateOpenRouterTester:
                 category="multimodal",
                 success=has_detailed_analysis and keyword_match,
                 duration=duration,
-                model=self.config.model,
+                model=self.model,
                 response_data={
                     "content": content,
                     "content_length": len(content) if content else 0,
@@ -1040,7 +1043,7 @@ class UltimateOpenRouterTester:
                 category="multimodal",
                 success=False,
                 duration=duration,
-                model=self.config.model,
+                model=self.model,
                 error=str(e)
             )
     
@@ -1058,7 +1061,7 @@ class UltimateOpenRouterTester:
             ]
             
             response = self.client.chat.completions.create(
-                model=self.config.model,
+                model=self.model,
                 messages=messages,
                 max_tokens=200,
                 temperature=0.7
@@ -1097,7 +1100,7 @@ class UltimateOpenRouterTester:
                 category="generation",
                 success=stats_success,
                 duration=duration,
-                model=self.config.model,
+                model=self.model,
                 response_data={
                     "content": content,
                     "generation_id": generation_id,
@@ -1117,7 +1120,7 @@ class UltimateOpenRouterTester:
                 category="generation",
                 success=False,
                 duration=duration,
-                model=self.config.model,
+                model=self.model,
                 error=str(e)
             )
     
@@ -1138,7 +1141,7 @@ class UltimateOpenRouterTester:
                 models_data = response.json()
                 model_count = len(models_data.get('data', []))
                 current_model_found = any(
-                    model['id'] == self.config.model 
+                    model['id'] == self.model 
                     for model in models_data.get('data', [])
                 )
             else:
@@ -1151,7 +1154,7 @@ class UltimateOpenRouterTester:
                 category="models",
                 success=success,
                 duration=duration,
-                model=self.config.model,
+                model=self.model,
                 response_data={
                     "status_code": response.status_code,
                     "model_count": model_count,
@@ -1167,7 +1170,7 @@ class UltimateOpenRouterTester:
                 category="models",
                 success=False,
                 duration=duration,
-                model=self.config.model,
+                model=self.model,
                 error=str(e)
             )
     
@@ -1186,7 +1189,7 @@ class UltimateOpenRouterTester:
             
             # Запрос с reasoning параметрами (по документации OpenRouter)
             response = self.client.chat.completions.create(
-                model=self.config.model,
+                model=self.model,
                 messages=messages,
                 max_tokens=800,
                 temperature=0.3
@@ -1245,7 +1248,7 @@ class UltimateOpenRouterTester:
                 category="reasoning",
                 success=reasoning_quality,  # Успех если есть качественное решение
                 duration=duration,
-                model=self.config.model,
+                model=self.model,
                 response_data={
                     "content": content,
                     "reasoning_detected": reasoning_detected,
@@ -1265,7 +1268,7 @@ class UltimateOpenRouterTester:
                 category="reasoning",
                 success=False,
                 duration=duration,
-                model=self.config.model,
+                model=self.model,
                 error=str(e)
             )
 
@@ -1284,7 +1287,7 @@ class UltimateOpenRouterTester:
                 
                 req_start = time.time()
                 response = self.client.chat.completions.create(
-                    model=self.config.model,
+                    model=self.model,
                     messages=messages,
                     max_tokens=50,
                     temperature=0.0
@@ -1344,7 +1347,7 @@ class UltimateOpenRouterTester:
                 category="batch",
                 success=race_test_success,
                 duration=duration,
-                model=self.config.model,
+                model=self.model,
                 response_data={
                     "total_requests": total_requests,
                     "successful_requests": successful_requests,
@@ -1363,7 +1366,7 @@ class UltimateOpenRouterTester:
                 category="batch",
                 success=False,
                 duration=duration,
-                model=self.config.model,
+                model=self.model,
                 error=str(e)
             )
     
@@ -1424,7 +1427,7 @@ class UltimateOpenRouterTester:
                         category=category,
                         success=False,
                         duration=0,
-                        model=self.config.model,
+                        model=self.model,
                         error=f"Unexpected error: {str(e)}"
                     )
                     self.results.append(error_result)
@@ -1460,7 +1463,7 @@ class UltimateOpenRouterTester:
         cache_detected = len(cache_results) > 0
         
         # Создаем таблицу результатов
-        table = Table(title=f"🎯 Ultimate Test Results - {self.config.model}", box=box.ROUNDED)
+        table = Table(title=f"🎯 Ultimate Test Results - {self.model}", box=box.ROUNDED)
         table.add_column("Category", style="cyan", width=15)
         table.add_column("Test", style="yellow", width=25)
         table.add_column("Status", justify="center", width=8)
@@ -1525,9 +1528,13 @@ class UltimateOpenRouterTester:
             console.print("  • Для Anthropic используйте content как массив объектов") 
         
         # Сохраняем JSON отчет
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        model_clean = self.model.replace("/", "_").replace("-", "_")
+        report_file = self.logs_dir / f"ultimate_report_{model_clean}_{timestamp}.json"
+        
         report_data = {
             "timestamp": datetime.now().isoformat(),
-            "model": self.config.model,
+            "model": self.model,
             "base_url": self.config.base_url,
             "total_tests": total_tests,
             "successful_tests": successful_tests,
@@ -1536,8 +1543,6 @@ class UltimateOpenRouterTester:
             "cache_detected": cache_detected,
             "results": [asdict(result) for result in self.results]
         }
-        
-        report_file = self.logs_dir / f"ultimate_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
         with open(report_file, 'w', encoding='utf-8') as f:
             json.dump(report_data, f, ensure_ascii=False, indent=2, default=str)
         
@@ -1562,25 +1567,104 @@ def main():
         # Загружаем конфигурацию
         config = TestConfig.from_env()
         
-        # Создаем тестер
-        tester = UltimateOpenRouterTester(config)
+        all_results = []
         
-        # Запускаем тесты
-        console.print("[bold]🎯 Начинаем тестирование...[/]\n")
-        results = tester.run_all_tests()
+        # Проходим по всем моделям
+        model_stats = {}
+        for model in config.models:
+            console.print(f"\n[bold blue]🔄 Тестирование модели: {model}[/]\n")
+            
+            # Создаем тестер для текущей модели
+            tester = UltimateOpenRouterTester(config, model)
+            
+            # Запускаем тесты
+            console.print("[bold]🎯 Начинаем тестирование...[/]\n")
+            results = tester.run_all_tests()
+            all_results.extend(results)
+            
+            # Собираем статистику по модели
+            model_success_count = len([r for r in results if r.success])
+            model_total_count = len(results)
+            model_success_rate = (model_success_count / model_total_count * 100) if model_total_count > 0 else 0
+            
+            model_stats[model] = {
+                'success_count': model_success_count,
+                'total_count': model_total_count,
+                'success_rate': model_success_rate,
+                'results': results
+            }
+            
+            # Генерируем отчет для текущей модели
+            console.print(f"\n[bold]📊 Генерация отчета для {model}...[/]")
+            tester.generate_report()
         
-        # Генерируем отчет
-        console.print("\n[bold]📊 Генерация отчета...[/]")
-        tester.generate_report()
+        # Создаем общую SCORE BOARD таблицу
+        console.print("\n" + "="*80)
+        console.print("[bold cyan]🏆 MODEL SCORE BOARD - Сравнение моделей[/]")
+        console.print("="*80)
         
-        # Итоговое сообщение
-        success_count = len([r for r in results if r.success])
-        if success_count == len(results):
+        scoreboard_table = Table(title="🏆 Model Comparison", box=box.ROUNDED)
+        scoreboard_table.add_column("Model", style="cyan", width=25)
+        scoreboard_table.add_column("Tests", justify="center", width=8)
+        scoreboard_table.add_column("Passed", justify="center", width=8)
+        scoreboard_table.add_column("Success Rate", justify="center", width=12)
+        scoreboard_table.add_column("Status", justify="center", width=10)
+        
+        for model, stats in model_stats.items():
+            success_rate = stats['success_rate']
+            if success_rate == 100:
+                status = "✅ Perfect"
+                status_style = "green"
+            elif success_rate >= 80:
+                status = "⚡ Good"
+                status_style = "yellow"
+            elif success_rate >= 50:
+                status = "⚠️ Poor"
+                status_style = "orange"
+            else:
+                status = "❌ Bad"
+                status_style = "red"
+            
+            scoreboard_table.add_row(
+                model,
+                str(stats['total_count']),
+                str(stats['success_count']),
+                f"{success_rate:.1f}%",
+                f"[{status_style}]{status}[/{status_style}]"
+            )
+        
+        console.print("\n")
+        console.print(scoreboard_table)
+        
+        # Детальная статистика по категориям для каждой модели
+        console.print("\n[bold cyan]📊 Детальная статистика по категориям:[/]")
+        for model, stats in model_stats.items():
+            console.print(f"\n[bold]{model}:[/]")
+            category_stats = {}
+            for result in stats['results']:
+                category = result.category
+                if category not in category_stats:
+                    category_stats[category] = {'total': 0, 'success': 0}
+                category_stats[category]['total'] += 1
+                if result.success:
+                    category_stats[category]['success'] += 1
+            
+            for category, cat_stats in category_stats.items():
+                success_rate = (cat_stats['success'] / cat_stats['total'] * 100) if cat_stats['total'] > 0 else 0
+                status_icon = "✅" if success_rate == 100 else "⚡" if success_rate >= 80 else "⚠️" if success_rate >= 50 else "❌"
+                console.print(f"  {status_icon} {category}: {cat_stats['success']}/{cat_stats['total']} ({success_rate:.1f}%)")
+        
+        # Итоговое сообщение для всех моделей
+        success_count = len([r for r in all_results if r.success])
+        total_count = len(all_results)
+        if success_count == total_count:
             console.print("\n[bold green]🎉 ВСЕ ТЕСТЫ ПРОШЛИ УСПЕШНО! 🎉[/]")
-        elif success_count > len(results) * 0.8:
+        elif success_count > total_count * 0.8:
             console.print("\n[bold yellow]⚡ БОЛЬШИНСТВО ТЕСТОВ ПРОШЛИ УСПЕШНО ⚡[/]")
         else:
             console.print("\n[bold red]⚠️ НАЙДЕНЫ ПРОБЛЕМЫ - ТРЕБУЕТ ВНИМАНИЯ ⚠️[/]")
+            
+        console.print(f"\n[bold cyan]📊 ОБЩАЯ СТАТИСТИКА:[/] {success_count}/{total_count} тестов прошли успешно")
             
     except ValueError as e:
         console.print(f"[red]❌ Ошибка конфигурации: {e}[/]")
