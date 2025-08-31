@@ -230,6 +230,19 @@ class UltimateOpenRouterTester:
             for field in cache_fields:
                 if field in usage_info and usage_info[field] is not None:
                     cache_info[field] = usage_info[field]
+            
+            # Дополнительно извлекаем cached_tokens из prompt_tokens_details для OpenAI
+            if 'prompt_tokens_details' in usage_info:
+                details_str = usage_info['prompt_tokens_details']
+                if 'cached_tokens=' in details_str:
+                    try:
+                        # Извлекаем cached_tokens из строки вида "PromptTokensDetails(audio_tokens=0, cached_tokens=17792)"
+                        import re
+                        match = re.search(r'cached_tokens=(\d+)', details_str)
+                        if match:
+                            cache_info['cached_tokens'] = int(match.group(1))
+                    except:
+                        pass
         
         return usage_info, cache_info
     
@@ -744,7 +757,9 @@ class UltimateOpenRouterTester:
 - AWS SQS/SNS для облачных решений, асинхронная обработка и паттерны Retry/Circuit Breaker
 
 Отвечай максимально детально с практическими рекомендациями и конкретными примерами реализации.
-            """ * 2  # Удваиваем для гарантии >2048 токенов
+            """ * 16  # Увеличиваем до 16 раз для гарантии >2048 токенов
+            
+            self.logger.info(f"📏 Размер контента: {len(large_context_part2)} символов")
             
             # ПРАВИЛЬНЫЙ формат для всех провайдеров OpenRouter!
             # Для Anthropic Claude: обязательно content как массив объектов с cache_control
@@ -773,6 +788,9 @@ class UltimateOpenRouterTester:
                 }
             ]
             
+            system_content_size = len(large_context_part1) + len(large_context_part2)
+            self.logger.info(f"📏 Общий размер system контента: {system_content_size} символов")
+            
             self.logger.info("🚀 Отправляем первый запрос с cache_control (создание кеша)...")
             response_1 = self.client.chat.completions.create(
                 model=self.config.model,
@@ -786,6 +804,7 @@ class UltimateOpenRouterTester:
             
             self.logger.info(f"✅ Первый ответ получен: {len(first_content) if first_content else 0} символов")
             self.logger.info(f"📊 Usage 1: {usage_1}")
+            self.logger.info(f"💾 Cache 1: {cache_1}")
             
             # Короткая пауза для стабильности кеша
             time.sleep(2)
@@ -825,6 +844,7 @@ class UltimateOpenRouterTester:
             
             self.logger.info(f"✅ Второй ответ получен: {len(second_content) if second_content else 0} символов")
             self.logger.info(f"📊 Usage 2: {usage_2}")
+            self.logger.info(f"💾 Cache 2: {cache_2}")
             
             duration = time.time() - start_time
             
@@ -838,19 +858,21 @@ class UltimateOpenRouterTester:
             }
             
             if usage_1 and usage_2:
-                # Anthropic Claude поля
-                cache_read_1 = usage_1.get('cache_read_input_tokens', 0)
-                cache_read_2 = usage_2.get('cache_read_input_tokens', 0)
-                cache_creation_1 = usage_1.get('cache_creation_input_tokens', 0)
-                cache_creation_2 = usage_2.get('cache_creation_input_tokens', 0)
+                # Anthropic Claude поля из cache_info
+                cache_read_1 = cache_1.get('cache_read_input_tokens', 0)
+                cache_read_2 = cache_2.get('cache_read_input_tokens', 0)
+                cache_creation_1 = cache_1.get('cache_creation_input_tokens', 0)
+                cache_creation_2 = cache_2.get('cache_creation_input_tokens', 0)
                 
-                # OpenAI поля  
-                cached_1 = usage_1.get('cached_tokens', 0)
-                cached_2 = usage_2.get('cached_tokens', 0)
+                # OpenAI поля из cache_info
+                cached_1 = cache_1.get('cached_tokens', 0)
+                cached_2 = cache_2.get('cached_tokens', 0)
                 
-                # Google Gemini поля
-                prompt_tokens_cached_1 = usage_1.get('prompt_tokens_cached', 0)
-                prompt_tokens_cached_2 = usage_2.get('prompt_tokens_cached', 0)
+                self.logger.info(f"🔍 Найдено cached_tokens: {cached_1} -> {cached_2}")
+                
+                # Google Gemini поля из cache_info
+                prompt_tokens_cached_1 = cache_1.get('prompt_tokens_cached', 0)
+                prompt_tokens_cached_2 = cache_2.get('prompt_tokens_cached', 0)
                 
                 # Детальная информация из строковых полей
                 prompt_details_1 = str(usage_1.get('prompt_tokens_details', ''))
@@ -876,7 +898,7 @@ class UltimateOpenRouterTester:
                     cache_analysis['cache_read_tokens'] = prompt_tokens_cached_2
                     cache_analysis['cache_evidence'].append(f"Google: кешированные токены промпта={prompt_tokens_cached_2}")
                     
-                elif 'cached' in prompt_details_2.lower():
+                elif 'cached' in prompt_details_2.lower() and (cached_2 > 0 or prompt_tokens_cached_2 > 0 or cache_read_2 > 0):
                     cache_detected = True
                     cache_analysis['provider_type'] = 'auto_detected'
                     cache_analysis['cache_evidence'].append(f"Обнаружено в деталях: {prompt_details_2}")
